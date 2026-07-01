@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Triadic Judgment Task</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-select@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe"></script>
+</head>
+<body></body>
+<script>
+
+// ============================================================================
+// CONFIGURATION - Edit these values for your experiment
+// ============================================================================
+
+const CONFIG = {
+    // Word directory settings
+    wordDirectory: "stimuli/words800/",  // Directory containing your word manifest
+
+    // Auto-discover words (fetches manifest.json from wordDirectory)
+    // manifest.json format: {"words": ["word1", "word2", ...]}
+    useManifest: true,
+
+    // Trial configuration
+    numRandomTrials: 900, // 900
+    numCheckTrials: 10, // 10
+    numValidationTrials: 90, // 90
+
+    // Validation triplets - hardcoded for consistency
+    // Set to null to randomly sample validation trials each time, otherwise provide a fixed set of triplets
+    validationTriplets: null,
+
+    // Data saving
+    experimentId: "7QSDygYjQHkk",
+    filenamePrefix: "large_sem_field",
+
+
+    // Other settings
+    speedThreshold: 900,  // RT threshold for "going too fast" warning
+    consentImage: "kc_lab_consent_prolific.png", // this is for if you have an image-based consent form (we don't for the cultural triplets)
+    secretCode: "C12R1B6F"
+};
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+let wordList = [];
+
+// Initialize jsPsych with custom progress bar settings
+const jsPsych = initJsPsych({
+    show_progress_bar: true,
+    auto_update_progress_bar: false,
+    on_data_update: function() {
+        jsPsych.data.addProperties({worker_id: urlvar.workerId});
+    },
+    max_load_time: 120000,
+    on_finish: function(data){
+        //const completionUrl = `https://uwmadison.sona-systems.com/webstudy_credit.aspx?experiment_id=${CONFIG.sonaExperimentId}&credit_token=${CONFIG.sonaCreditToken}&survey_code=${sona_id}`;
+        //window.location.assign(completionUrl);
+    }
+});
+
+// Setup variables
+const timeline = [];
+const secret_code = jsPsych.randomization.randomID(8);
+const filename = `${CONFIG.filenamePrefix}_${secret_code}.csv`;
+const urlvar = jsPsych.data.urlVariables();
+
+// SONA integration
+let sona_id = urlvar.workerId;
+
+// Progress tracking
+const n_main_trials = CONFIG.numRandomTrials + CONFIG.numCheckTrials + CONFIG.numValidationTrials;
+let completed_main_trials = 0;
+
+// Save data configuration
+const save_data = {
+    type: jsPsychPipe,
+    action: "save",
+    experiment_id: CONFIG.experimentId,
+    filename: filename,
+    data_string: ()=>jsPsych.data.get().csv()
+};
+
+// ============================================================================
+// WORD LOADING FUNCTIONS
+// ============================================================================
+
+// Function to load words from manifest.json
+async function loadWordsFromManifest() {
+    try {
+        const response = await fetch(CONFIG.wordDirectory + 'manifest.json');
+        const data = await response.json();
+        return data.words;
+    } catch (error) {
+        console.error('Error loading manifest:', error);
+        alert('Failed to load word manifest. Please check that manifest.json exists in ' + CONFIG.wordDirectory);
+        return [];
+    }
+}
+
+// Function to use manual word list
+function loadWordsManually() {
+    return CONFIG.manualWordList;
+}
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+function shuffle(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
+function getUniqueRandomWords(n, excludeWords = []) {
+    const availableWords = wordList.filter(w => !excludeWords.includes(w));
+    if (availableWords.length < n) {
+        console.error('Not enough unique words available');
+        return null;
+    }
+    return jsPsych.randomization.sampleWithoutReplacement(availableWords, n);
+}
+
+// ============================================================================
+// TRIAL GENERATION FUNCTIONS
+// ============================================================================
+
+function generateRandomTrial() {
+    const words = getUniqueRandomWords(3);
+    if (!words) return null;
+
+    const [stimulus, choice1, choice2] = words;
+    return {
+        type: 'random',
+        stimulus: stimulus,
+        choice1: choice1,
+        choice2: choice2
+    };
+}
+
+function generateCheckTrial() {
+    const words = getUniqueRandomWords(2);
+    if (!words) return null;
+
+    const [stimulus, incorrectChoice] = words;
+    const correctChoice = stimulus;  // The correct choice is the duplicate of the stimulus
+    const correctIndex = Math.random() < 0.5 ? 0 : 1;
+
+    return {
+        type: 'check',
+        stimulus: stimulus,
+        choice1: correctIndex === 0 ? correctChoice : incorrectChoice,
+        choice2: correctIndex === 1 ? correctChoice : incorrectChoice,
+        correct_choice: correctIndex
+    };
+}
+
+function createTrialSequence(numRandom, numCheck, numValidation) {
+    let trials = [];
+
+    // Generate random trials
+    for (let i = 0; i < numRandom; i++) {
+        const trial = generateRandomTrial();
+        if (trial) trials.push(trial);
+    }
+
+    // Generate check trials
+    for (let i = 0; i < numCheck; i++) {
+        const trial = generateCheckTrial();
+        if (trial) trials.push(trial);
+    }
+
+    // Add validation trials
+    if (CONFIG.validationTriplets && CONFIG.validationTriplets.length > 0) {
+        // Use hardcoded validation triplets
+        const selectedValidation = CONFIG.validationTriplets.length <= numValidation
+            ? CONFIG.validationTriplets
+            : jsPsych.randomization.sampleWithoutReplacement(CONFIG.validationTriplets, numValidation);
+
+        // Add type to each hardcoded triplet (words are used as-is, no directory prefix)
+        const validationTrials = selectedValidation.map(v => ({
+            type: 'validation',
+            stimulus: v.stimulus,
+            choice1: v.choice1,
+            choice2: v.choice2
+        }));
+
+        trials = trials.concat(validationTrials);
+    } else {
+        // Generate random validation trials
+        for (let i = 0; i < numValidation; i++) {
+            const trial = generateRandomTrial();
+            if (trial) {
+                trial.type = 'validation';
+                trials.push(trial);
+            }
+        }
+    }
+
+    return shuffle(trials);
+}
+
+// ============================================================================
+// EXPERIMENT COMPONENTS
+// ============================================================================
+
+// Welcome screen
+const welcome = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "Welcome to the experiment. Press any key to begin."
+};
+
+// Fullscreen
+const fullscreen = {
+    type: jsPsychFullscreen,
+    fullscreen_mode: true
+};
+
+// Consent — 4 pages
+const consent_1 = {
+    type: jsPsychHtmlKeyboardResponse,
+    choices: [' '],
+    stimulus: `<div style="text-align:left; max-width:700px; margin:auto;">
+        <h2>Do I have to take part?</h2>
+        <p>Before deciding whether to participate, please read the following information about the study, including what it involves and how your data will be used.</p>
+        <p>Your participation is voluntary. You are free to withdraw at any time, without giving a reason.</p>
+        <p>Your data will be anonymised as soon as possible. If you withdraw before anonymisation, we will delete your data where possible.</p>
+        <p>If you have questions or would like more information, contact:<br>
+        Netaniel Rein (<a href="mailto:Netaniel.Rein@mrc-cbu.cam.ac.uk">Netaniel.Rein@mrc-cbu.cam.ac.uk</a>)</p>
+        <p><em>Press Space to continue.</em></p>
+    </div>`
+};
+
+const consent_2 = {
+    type: jsPsychHtmlKeyboardResponse,
+    choices: [' '],
+    stimulus: `<div style="text-align:left; max-width:700px; margin:auto;">
+        <h2>Data and Privacy</h2>
+        <p>This study is conducted by Netaniel Rein, with Matt Lambon-Ralph, Tim Rogers, and Ivette Colon, under the MRC Cognition and Brain Sciences Unit (University of Cambridge).</p>
+        <p>The data you provide will be used for research purposes and handled in accordance with data protection regulations. Data will be stored securely on systems associated with the MRC CBU.</p>
+        <p>Where possible, data will be anonymised and we will minimise the use of personally identifiable information. Some third-party tools may be used to collect responses, but no identifying information is intentionally stored in these systems.</p>
+        <p>For questions about data handling, contact:<br>
+        Netaniel Rein (<a href="mailto:Netaniel.Rein@mrc-cbu.cam.ac.uk">Netaniel.Rein@mrc-cbu.cam.ac.uk</a>)</p>
+        <p><em>Press Space to continue.</em></p>
+    </div>`
+};
+
+const consent_3 = {
+    type: jsPsychHtmlKeyboardResponse,
+    choices: [' '],
+    stimulus: `<div style="text-align:left; max-width:700px; margin:auto;">
+        <h2>Complaints</h2>
+        <p>If you have any concerns or complaints about the study, please contact:<br>
+        Netaniel Rein (<a href="mailto:Netaniel.Rein@mrc-cbu.cam.ac.uk">Netaniel.Rein@mrc-cbu.cam.ac.uk</a>)</p>
+        <p>Further procedures are available through the University of Cambridge if needed.</p>
+        <p><em>Press Space to continue.</em></p>
+    </div>`
+};
+
+
+const consent_confirmation = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div style="text-align:left; max-width:700px; margin:auto;">
+        <h2>Consent</h2>
+        <p>By continuing, you confirm that:</p>
+        <ul>
+            <li>You understand the information provided about the study</li>
+            <li>You know how to contact the researcher with questions</li>
+            <li>You understand that participation is voluntary and you may withdraw at any time without penalty</li>
+        </ul>
+        <p style="border: 2px solid #b00; background: #fdd; padding: 12px; border-radius: 6px;">
+            <strong>Important:</strong> Do not refresh or reload this page at any time during the experiment.
+            Refreshing will result in the loss of your data, and you will not be paid.
+        </p>
+    </div>`,
+    choices: ["I consent"]
+};
+
+// Instructions
+const instructions = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<p>In each trial of this task, you will see three words: one target word on top, and two choice words beneath the target word.</p>
+        <p>For each trial, <strong>please select the word that is most similar to the target word.</strong></p>
+        <p>Your responses should be based on the meaning of each word, rather than based on spelling or how the words sound.</p>
+        <p>There will be ${n_main_trials} trials.</p>
+        <p>Click 'Continue' to begin the test.</p>`,
+    choices: ["Continue"],
+    post_trial_gap: 2000
+};
+
+// Trial presentation
+const createTrial = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: function() {
+        return `<div style="font-size:84px; font-weight:bold; margin-bottom:60px;">${jsPsych.timelineVariable('stimulus')}</div>`
+    },
+    choices: function() {
+        return [
+            jsPsych.timelineVariable('choice1'),
+            jsPsych.timelineVariable('choice2')
+        ];
+    },
+    button_html: '<button class="jspsych-btn" style="font-size:48px; padding:25px 50px; min-width:240px; margin:0 30px;">%choice%</button>',
+    on_finish: function(data) {
+        const trialType = jsPsych.timelineVariable('type');
+        data.trial_type = trialType;
+        data.speedy = data.rt < CONFIG.speedThreshold;
+        data.choices = [jsPsych.timelineVariable('choice1'), jsPsych.timelineVariable('choice2')];
+
+        if (trialType === 'check') {
+            data.correct = data.response === jsPsych.timelineVariable('correct_choice');
+        }
+
+        // Update progress bar
+        completed_main_trials++;
+        const progress = completed_main_trials / n_main_trials;
+        jsPsych.setProgressBar(progress);
+    }
+};
+
+// Feedback trials
+const speedFeedback = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "<p><strong>You're going too fast.</strong></p>Please slow down and assess each triplet.<p>Press 'y' to continue.</p>",
+    choices: ['y']
+};
+
+const checkFeedback = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "<p><strong>Incorrect!</strong></p>That was an attention check. Please pay attention while completing this task.<p>Press 'y' to continue.</p>",
+    choices: ['y']
+};
+
+// Main procedure
+const mainProcedure = {
+    timeline: [
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '+',
+            choices: "NO_KEYS",
+            trial_duration: 500
+        },
+        createTrial,
+        {
+            timeline: [checkFeedback],
+            conditional_function: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return lastTrial.trial_type === 'check' && !lastTrial.correct;
+            }
+        },
+        {
+            timeline: [speedFeedback],
+            conditional_function: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return lastTrial.rt < CONFIG.speedThreshold && lastTrial.trial_type !== 'check';
+            }
+        }
+    ],
+    timeline_variables: [], // Will be populated after words load
+    randomize_order: false,
+    on_timeline_start: function() {
+        jsPsych.setProgressBar(0);
+    }
+};
+
+// Demographics
+const demographic_instructions = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: "<p>Awesome!<p>For this last part of the experiment, please provide us with information about yourself.</p>",
+    choices: ["Continue"],
+    post_trial_gap: 1000
+};
+
+const demographics = {
+    type: jsPsychSurveyMultiSelect,
+    questions: [
+        {
+            prompt: "Which categories describe you? Select all that apply to you:",
+            options: [
+                "American Indian or Alaska Native - For example, Navajo Nation, Mayan",
+                "Asian - For example, Chinese, Asian Indian",
+                "Black or African American - For example, Jamaican, Ethiopian",
+                "Hispanic or Latino - For example, Mexican or Mexican American, Puerto Rican, Salvadoran",
+                "Middle Eastern or North African - For example, Lebanese, Iranian, Moroccan",
+                "Native Hawaiian or Other Pacific Islander - For example, Somoan, Fijian",
+                "White - For example, German, Irish",
+                "Some other race, ethnicity, or origin",
+                "I prefer not to answer"
+            ],
+            horizontal: false,
+            required: true,
+            name: 'race_eth'
+        }
+    ]
+};
+
+const id_age = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "Please enter your age (in years):", rows: 1, columns: 6, name: "age", required: true},
+        {prompt: "How do you currently describe your gender identity? Please specify.", rows: 1, columns: 60, name: "gender"}
+    ]
+};
+
+const country = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "What country do you currently live in?", rows: 1, columns: 40, name: "country", required: true}
+    ]
+};
+
+const crafts = {
+    type: jsPsychSurveyMultiSelect,
+    questions: [
+        {
+            prompt: "Do you participate in any of the following crafts? Select all that apply:",
+            options: [
+                "Cooking",
+                "Writing",
+                "Wood working",
+                "Metal working",
+                "Sewing",
+                "Drawing",
+                "Gardening",
+                "Other",
+                "None"
+            ],
+            horizontal: false,
+            required: true,
+            name: 'crafts'
+        }
+    ]
+};
+
+const crafts_other = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "If you selected 'Other', please specify:", rows: 1, columns: 60, name: "crafts_other", required: false}
+    ]
+};
+
+
+
+const occupation = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "What is your current occupation or field of work/study? (e.g., student, teacher, engineer, healthcare, etc.)", rows: 1, columns: 60, name: "occupation", required: false}
+    ]
+};
+
+const has_children = {
+    type: jsPsychSurveyMultiChoice,
+    questions: [
+        {
+            prompt: "Do you have any children?",
+            options: ["Yes", "No", "I prefer not to answer"],
+            horizontal: true,
+            required: true,
+            name: 'has_children'
+        }
+    ]
+};
+
+const goodbye = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: function(){
+        let output = "Woohoo! You have finished the experiment.<br>";
+        if(urlvar.workerId && urlvar.workerId.length > 7){
+            output += `<strong>Here is your secret code: ${CONFIG.secretCode}</strong><br>`;
+        }
+        output += "Click the button below to complete the experiment.<br><br>";
+        return output;
+    },
+    choices: ['Complete Experiment'],
+    on_finish: function() {
+        window.location.assign(`https://app.prolific.com/submissions/complete?cc=${CONFIG.secretCode}`);
+    }
+};
+
+const breakTrial = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: function() {
+        const total = CONFIG.numRandomTrials + CONFIG.numCheckTrials + CONFIG.numValidationTrials;
+        const pct = Math.round((completed_main_trials / total) * 100);
+        return `<p><strong>Time for a break!</strong></p>
+                <p>You are <strong>${pct}%</strong> of the way through the experiment.</p>
+                <p>Take a moment to rest, then click the button below when you are ready to continue.</p>`;
+    },
+    choices: ['Continue']
+};
+
+// ============================================================================
+// MAIN EXECUTION
+// ============================================================================
+
+async function initializeExperiment() {
+    // Load words
+    if (CONFIG.useManifest) {
+        wordList = await loadWordsFromManifest();
+    } else {
+        wordList = loadWordsManually();
+    }
+
+    if (wordList.length === 0) {
+        alert('No words loaded. Please check your configuration.');
+        return;
+    }
+
+    console.log(`Loaded ${wordList.length} words`);
+
+    // Build timeline
+    timeline.push(welcome);
+    timeline.push(fullscreen);
+    timeline.push(consent_1);
+    timeline.push(consent_2);
+    timeline.push(consent_3);
+    timeline.push(consent_confirmation);
+    timeline.push(instructions);
+
+    // Generate trials and add to main procedure, with breaks every 1/4 of the experiment
+    const allTrials = createTrialSequence(
+        CONFIG.numRandomTrials,
+        CONFIG.numCheckTrials,
+        CONFIG.numValidationTrials
+    );
+    const chunkSize = Math.ceil(allTrials.length / 4);
+    for (let i = 0; i < allTrials.length; i += chunkSize) {
+        const chunk = allTrials.slice(i, i + chunkSize);
+        timeline.push(Object.assign({}, mainProcedure, { timeline_variables: chunk }));
+        if (i + chunkSize < allTrials.length) {
+            timeline.push(breakTrial);
+        }
+    }
+
+    timeline.push(demographic_instructions);
+    timeline.push(demographics);
+    timeline.push(id_age);
+    timeline.push(country);
+    timeline.push(crafts);
+    timeline.push(crafts_other);
+    timeline.push(occupation);
+    timeline.push(has_children);
+    timeline.push(save_data);
+    timeline.push(goodbye);
+
+    // Run experiment
+    jsPsych.run(timeline);
+}
+
+// Start the experiment
+initializeExperiment();
+
+</script>
+</html>
