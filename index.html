@@ -422,36 +422,6 @@ const country = {
     ]
 };
 
-const crafts = {
-    type: jsPsychSurveyMultiSelect,
-    questions: [
-        {
-            prompt: "Do you participate in any of the following crafts? Select all that apply:",
-            options: [
-                "Cooking",
-                "Writing",
-                "Wood working",
-                "Metal working",
-                "Sewing",
-                "Drawing",
-                "Gardening",
-                "Other",
-                "None"
-            ],
-            horizontal: false,
-            required: true,
-            name: 'crafts'
-        }
-    ]
-};
-
-const crafts_other = {
-    type: jsPsychSurveyText,
-    questions: [
-        {prompt: "If you selected 'Other', please specify:", rows: 1, columns: 60, name: "crafts_other", required: false}
-    ]
-};
-
 
 
 const occupation = {
@@ -549,8 +519,6 @@ async function initializeExperiment() {
     timeline.push(demographics);
     timeline.push(id_age);
     timeline.push(country);
-    timeline.push(crafts);
-    timeline.push(crafts_other);
     timeline.push(occupation);
     timeline.push(has_children);
     timeline.push(save_data);
