@@ -28,14 +28,3 @@ pip install openpyxl
 python additional_scripts/generate_word_manifest.py [xlsx_path] [sheet_name]
 # defaults to 800wordlist_313seed.xlsx and sheet "Greedy_Init_800"
 ```
-
-## Configuration
-
-Edit the `CONFIG` object at the top of `index.html`:
-
-- `wordDirectory`: path to the folder containing `manifest.json` (default `stimuli/words800/`)
-- `numRandomTrials` / `numCheckTrials` / `numValidationTrials`: trial counts (default 900 / 10 / 90, matching the original image task)
-- `validationTriplets`: optional hardcoded array of `{stimulus, choice1, choice2}` word triplets for consistent validation trials across participants; `null` samples random validation trials each run
-- `experimentId` / `filenamePrefix`: [DataPipe](https://pipe.jspsych.org/) settings for saving CSV data
-- `speedThreshold`: RT (ms) below which participants get a "too fast" warning
-- `secretCode`: Prolific completion code
